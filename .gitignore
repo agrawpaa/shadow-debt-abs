@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints
+.env
+.DS_Store
+Thumbs.db
+~$*.xlsx
+~$*.xls
+*.tmp
+venv/
+.venv/
+data/raw/*
+!data/raw/.gitkeep
