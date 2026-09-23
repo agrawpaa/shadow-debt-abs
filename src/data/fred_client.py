@@ -52,14 +52,15 @@ class FredDataExtractor:
 
         df = pd.DataFrame(series_data)
         df.index = pd.to_datetime(df.index)
-        df = df.resample('MS').first()
+        df = df.resample('ME').first()
         df.index.name = "date"
         return df.reset_index()
 
 if __name__ == "__main__":
     try:
         extractor = FredDataExtractor()
-        macro_df = extractor.fetch_consumer_risk_metrics(start_date="2021-01-01")
+        # Pull a year before the target window so harmonize.py can compute YoY from Jan 2021
+        macro_df = extractor.fetch_consumer_risk_metrics(start_date="2020-01-01")
         
         if not macro_df.empty and len(macro_df.columns) > 1:
             print("\n--- Data Sample Preview (Most Recent Window) ---")
