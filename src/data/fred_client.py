@@ -14,7 +14,7 @@ load_dotenv(dotenv_path=env_path)
 #print(env_path)
 
 class FredDataExtractor:
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: str = None): # type: ignore
         raw_key = api_key or os.getenv("FRED_API_KEY")
         if not raw_key:
             raise ValueError("An active FRED API Key is required to initialize extraction pipelines.")

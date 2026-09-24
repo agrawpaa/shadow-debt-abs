@@ -22,11 +22,11 @@ class CFPBComplaintsClient:
         "Affirm Holdings, Inc",
         "Klarna Inc.",
         "Afterpay US, Inc.",
-        "PayPal Holdings, Inc.",
-        "Zip Co",
-        "Sezzle Inc.",
-        "Splitit",
-        "Uplift, Inc.",
+        #"PayPal Holdings, Inc.",
+        #"Zip Co",
+        #"Sezzle Inc.",
+        #"Splitit",
+        #"Uplift, Inc.",
     ]
 
     # Keyword terms for filtering BNPL & installment loan records
@@ -39,17 +39,17 @@ class CFPBComplaintsClient:
         "affirm",
         "klarna",
         "afterpay",
-        "sezzle",
-        "zip co",
-        "splitit",
-        "uplift",
+        #"sezzle",
+        #"zip co",
+        #"splitit",
+        #"uplift",
     ]
-
+    #code breaks w/o this lol
     INSTALLMENT_KEYWORDS = [
-        "installment",
-        "installment loan",
-        "installment payment",
-        "installment plan",
+        "Affrim",
+        #"installment loan",
+        #"installment payment",
+        #"installment plan",
     ]
 
     CSV_HEADERS = [
