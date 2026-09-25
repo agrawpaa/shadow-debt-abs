@@ -13,17 +13,9 @@ logger = logging.getLogger(__name__)
 
 class CFPBComplaintsClient:
     """
-    Data client that downloads and filters the CFPB Consumer Complaint Database
-    bulk CSV export for BNPL (Buy Now, Pay Later) and installment loan records,
-    with support for joining consumer complaint narratives from archive files.
-
-    NOTE: As of mid-2026 the CFPB search API (www.consumerfinance.gov/.../api/v1/)
-    returns 403 for programmatic clients (Akamai WAF). The authoritative replacement
-    is the full-database bulk CSV at BULK_CSV_URL, which is publicly accessible.
-
-    Additionally, as of August 14 2026 the CFPB stopped publishing consumer
+    As of August 14 2026 the CFPB stopped publishing consumer
     complaint narratives in the primary database export. Narratives for complaints
-    can be joined via a separate narrative archive file (CSV or ZIP).
+    as such will be handled in a diff file
     """
 
     BULK_CSV_URL = "https://files.consumerfinance.gov/ccdb/complaints.csv.zip"
@@ -108,13 +100,6 @@ class CFPBComplaintsClient:
         cache_path: Optional[str] = None,
         narratives_path: Optional[str] = None,
     ):
-        """
-        Args:
-            timeout: HTTP timeout in seconds for bulk download (default 300s).
-            cache_path: Optional local path to cache downloaded zip.
-            narratives_path: Optional path to a CSV or ZIP file containing
-                complaint narratives mapped by complaint_id.
-        """
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": (
@@ -135,20 +120,14 @@ class CFPBComplaintsClient:
         if narratives_path and os.path.exists(narratives_path):
             self.load_narratives_archive(narratives_path)
 
-    # ------------------------------------------------------------------
-    # Narrative archive handling
-    # ------------------------------------------------------------------
+    # Narrative archive stuff
 
     def load_narratives_archive(self, file_path: str) -> int:
         """
-        Load complaint narratives from a CSV or ZIP file into memory.
 
         Expected columns:
         - 'Complaint ID' or 'complaint_id'
         - 'Consumer complaint narrative' or 'narrative'
-
-        Returns:
-            Number of narratives loaded.
         """
         if not os.path.exists(file_path):
             logger.warning("Narratives archive file not found: %s", file_path)
@@ -204,9 +183,7 @@ class CFPBComplaintsClient:
         logger.info("Loaded %d narratives into memory.", count)
         return count
 
-    # ------------------------------------------------------------------
     # Internal helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _extract_source(record: Dict[str, Any]) -> Dict[str, Any]:
@@ -217,6 +194,7 @@ class CFPBComplaintsClient:
         """
         Download the CFPB bulk CSV zip. If cache_path is set and the file
         already exists, load from disk instead of downloading again.
+        This should be in the repo already
 
         Returns:
             Raw bytes of the zip file.
@@ -295,9 +273,6 @@ class CFPBComplaintsClient:
 
                     yield norm
 
-    # ------------------------------------------------------------------
-    # Public interface
-    # ------------------------------------------------------------------
 
     def is_bnpl_or_installment(self, record: Dict[str, Any]) -> bool:
         """Check whether a single complaint record matches BNPL / installment criteria."""
@@ -341,17 +316,6 @@ class CFPBComplaintsClient:
         Download the CFPB bulk CSV and return complaint records matching
         the given company list (if provided) and date range.
         If companies is None, all companies are included.
-
-        Args:
-            companies: List of company names to include (case-insensitive), or None for all companies.
-            date_received_min: Earliest date to include (YYYY-MM-DD).
-            date_received_max: Latest date to include (YYYY-MM-DD).
-            total_limit: Stop after this many records (None = unlimited).
-            search_terms: Ignored in bulk mode; kept for backward compatibility.
-            page_size: Ignored in bulk mode; kept for backward compatibility.
-
-        Returns:
-            List of normalised complaint record dicts.
         """
         query_companies: Optional[frozenset] = (
             frozenset(c.lower() for c in companies) if companies is not None else None
@@ -444,12 +408,8 @@ class CFPBComplaintsClient:
         date_received_max: Optional[str] = None,
         total_limit: Optional[int] = None,
     ) -> None:
-        """
-        Run the complete CFPB data pipeline:
-        1. Optionally load narratives archive.
-        2. Stream all complaint records over the time period from bulk CSV.
-        3. Write all complaints to all_export_path and filtered BNPL/installment complaints to filtered_export_path.
-        """
+        #Run the complete CFPB data pipeline:
+        
         logger.info(
             "Starting CFPB data collection pipeline (since %s, limit=%s)...",
             date_received_min or "beginning",
