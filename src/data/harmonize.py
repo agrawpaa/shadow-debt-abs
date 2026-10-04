@@ -1,4 +1,5 @@
-# Resamples the FRED and CFPB extracts to Month-End (ME) and exports the modeling dataset.
+# Resamples the FRED and Google Trends extracts to Month-End (ME) and exports the modeling dataset.
+# cfpb_client.py and download_narratives.py are deprecated and no longer called here.
 
 from pathlib import Path
 import pandas as pd
@@ -6,10 +7,13 @@ import pandas as pd
 root_dir = Path(__file__).resolve().parent.parent.parent
 
 FRED_RAW_PATH = root_dir / "data" / "raw" / "fred_macro_metrics.csv"
-CFPB_RAW_PATH = root_dir / "data" / "raw" / "cfpb_filtered_bnpl_installment.csv"
+TRENDS_PATH = root_dir / "data" / "processed" / "trends_features.csv"
 OUTPUT_PATH = root_dir / "data" / "processed" / "macro_features.csv"
 
 SERIES_START = "2021-01-01"
+
+# Keywords that read zero in more than half the months carry no signal once z-scored
+MIN_NONZERO_SHARE = 0.5
 
 FRED_COLUMN_MAP = {
     "personal_savings_rate": "psavert",
@@ -31,27 +35,19 @@ def load_fred_features(path: Path = FRED_RAW_PATH) -> pd.DataFrame:
     return df[["psavert", "dspic96", "cpi_yoy", "totalsl_yoy"]]
 
 
-def load_complaint_velocity(path: Path = CFPB_RAW_PATH) -> pd.DataFrame:
-    df = pd.read_csv(path, usecols=["date_received", "consumer_complaint_narrative"])
+def load_distress_search_index(path: Path = TRENDS_PATH) -> pd.DataFrame:
+    df = pd.read_csv(path, parse_dates=["date"]).set_index("date")
 
-    # CFPB stamps are tz-aware ISO strings; drop the offset so they align with FRED
-    received = pd.to_datetime(df["date_received"], errors="coerce", utc=True)
-    df = df.assign(date_received=received.dt.tz_localize(None)).dropna(subset=["date_received"])
-    df = df.set_index("date_received")
+    # Trends scales a keyword batch to one shared 0-100 peak, so z-score each keyword
+    # before averaging to stop the highest-volume term dominating the index
+    usable = df.loc[:, df.ne(0).mean() >= MIN_NONZERO_SHARE]
+    zscores = (usable - usable.mean()) / usable.std()
 
-    has_narrative = df["consumer_complaint_narrative"].fillna("").str.strip().ne("")
-    monthly = pd.DataFrame({
-        "cfpb_bnpl_complaints": df.resample("ME").size(),
-        "cfpb_narrative_count": has_narrative.resample("ME").sum(),
-    })
-    return monthly.astype(int)
+    return zscores.mean(axis=1).rename("distress_search_index").to_frame()
 
 
-def build_macro_features(fred_path: Path = FRED_RAW_PATH, cfpb_path: Path = CFPB_RAW_PATH) -> pd.DataFrame:
-    counts = ["cfpb_bnpl_complaints", "cfpb_narrative_count"]
-
-    df = load_fred_features(fred_path).join(load_complaint_velocity(cfpb_path), how="left")
-    df[counts] = df[counts].fillna(0).astype(int)
+def build_macro_features(fred_path: Path = FRED_RAW_PATH, trends_path: Path = TRENDS_PATH) -> pd.DataFrame:
+    df = load_fred_features(fred_path).join(load_distress_search_index(trends_path), how="inner")
 
     # Trim the YoY lookback window off the front
     df = df.loc[df.index >= SERIES_START]
@@ -60,9 +56,9 @@ def build_macro_features(fred_path: Path = FRED_RAW_PATH, cfpb_path: Path = CFPB
 
 
 if __name__ == "__main__":
-    missing = [p for p in (FRED_RAW_PATH, CFPB_RAW_PATH) if not p.exists()]
+    missing = [p for p in (FRED_RAW_PATH, TRENDS_PATH) if not p.exists()]
     if missing:
-        print("Missing raw extracts, run fred_client.py and cfpb_client.py first:")
+        print("Missing extracts, run fred_client.py and trends_client.py first:")
         for path in missing:
             print(f" -> {path}")
     else:
