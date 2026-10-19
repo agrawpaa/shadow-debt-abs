@@ -1,3 +1,4 @@
+# DEPRECATED: CFPB stopped publishing complaints in Aug 2026; harmonize.py reads the frozen counts instead.
 import concurrent.futures
 import os
 import time
