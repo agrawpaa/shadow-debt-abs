@@ -68,10 +68,10 @@ SMM = 1 − (1 − CPR)^(1/12)
 **Example (CPR = 12%):**
 
 ```
-SMM = 1 − (1 − 0.12)^(1/12) = 1 − (0.88)^0.08333 = 1 − 0.98904 = 0.01096, or 1.096%
+SMM = 1 − (1 − 0.12)^(1/12) = 1 − (0.88)^0.08333 = 1 − 0.989404 = 0.010596, or 1.0596%
 ```
 
-**Interpretation:** Each month, 1.096% of the remaining pool balance is prepaid by borrowers.
+**Interpretation:** Each month, 1.0596% of the remaining pool balance is prepaid by borrowers.
 
 **Excel location:** `Inputs_Assumptions!B14`
 
@@ -108,7 +108,7 @@ Each month, the pool generates cash from borrowers and loses cash from defaults.
 | Beginning Balance | Prior ending balance | Period 0 ending | $500,000,000 |
 | Gross Interest | B × (WAC / 12) | $500M × 14.50% / 12 | $6,041,667 |
 | Scheduled Principal | PPMT amortization | Loan payment calc | $7,747,310 |
-| Prepayments | (B − SP) × SMM | $492.25M × 1.096% | $5,216,028 |
+| Prepayments | (B − SP) × SMM | $492.25M × 1.0596% | $5,216,028 |
 | Gross Defaults | B × MDR | $500M × 0.692% | $3,462,191 |
 | Net Losses | Defaults × SEV | $3.46M × 65% | $2,250,424 |
 | Recoveries | Defaults × (1 − SEV) | $3.46M × 35% | $1,211,767 |
@@ -142,7 +142,7 @@ Senior investors are promised 5.75% annual interest. This must be paid in full e
 
 ### Step 3: Class B Interest (mezzanine coupon)
 
-Calculation: $85M × (8.25% / 12) = **$583,750**
+Calculation: $85M × (8.25% / 12) = **$584,375**
 
 Mezzanine investors are promised 8.25% annual interest, paid only AFTER Senior interest is satisfied. In the base case it is ALWAYS paid in full.
 
@@ -163,7 +163,7 @@ Gross losses from defaults: $2,250,424
 - **Class B Loss:** min($0 remaining loss, $85M) = **$0** → Mezzanine protected this month (Equity absorbed everything).
 - **Class A Loss:** **$0** → Senior untouched (not until Equity AND Mezzanine are wiped).
 
-> **KEY INSIGHT:** Payments flow down (Senior → Mezzanine → Equity). Losses flow up (Equity → Mezzanine → Senior). In the base case at 8% CDR, Equity absorbs ~$2.25M/month. At a $40M balance, this means Equity lasts ~18 months. Only then does Mezzanine start taking losses.
+> **KEY INSIGHT:** Payments flow down (Senior → Mezzanine → Equity). Losses flow up (Equity → Mezzanine → Senior). In the base case at 8% CDR, Equity absorbs ~$2.25M/month. At a $40M balance, Equity lasts 28 months and is wiped out in month 29. Only then does Mezzanine start taking losses.
 
 ---
 
