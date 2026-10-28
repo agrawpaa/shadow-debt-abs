@@ -1,4 +1,13 @@
 import pandas as pd
+from typing import Optional
+
+TRANCHES = {
+    # name: (share attribute, principal column, loss column, interest/residual column, ending column)
+    "Class A": ("a_share", "a_prin", "a_loss", "a_int", "a_end"),
+    "Class B": ("b_share", "b_prin", "b_loss", "b_int", "b_end"),
+    "Equity": ("eq_share", None, "eq_loss", "residual", "eq_end"),
+}
+
 
 
 class WaterfallEngine:
@@ -140,57 +149,189 @@ class WaterfallEngine:
         
         return self.pool
 
+
+# --------------------------------------------------------------------------
+# Priority of payments  (Waterfall_Cashflows sheet, tranche columns)
+# --------------------------------------------------------------------------
+
+    def run_waterfall(self, cap_principal_to_cash: bool = True) -> pd.DataFrame:
+        """
+        Runs the monthly priority of payments on the engine's pool schedule.
+
+        Parameters
+        ----------
+        cap_principal_to_cash : bool, default True
+            Limit principal paid to cash remaining after fees and interest. False reproduces the Excel,
+            which pays full principal collections even when cash runs short.
+
+        Returns
+        -------
+        pd.DataFrame
+            49 rows (periods 0-48): beginning/ending balances, fees, interest, principal,
+            write-downs and residual for each tranche.
+        """
+
+        pool = self.build_pool_schedule()
+
+        rows = [{
+            "period": 0,
+            "a_beg": 0.0, "b_beg": 0.0, "eq_beg": 0.0,
+            "serv_fee": 0.0, "cash_after_fees": 0.0,
+            "a_int": 0.0, "cash_after_a_int": 0.0, "b_int": 0.0, "cash_after_b_int": 0.0,
+            "avail_prin": 0.0, "a_prin": 0.0, "b_prin": 0.0,
+            "eq_loss": 0.0, "b_loss": 0.0, "a_loss": 0.0,
+            "residual": 0.0,
+            "a_end": self.balance * self.a_share,
+            "b_end": self.balance * self.b_share,
+            "eq_end": self.balance * self.eq_share,
+        }]
+
+        for t in range(1, self.wam + 1):
+            p = pool.loc[t]
+            a_beg, b_beg, eq_beg = rows[t-1]["a_end"], rows[t-1]["b_end"], rows[t-1]["eq_end"]
+
+            # 1-3. Fees and interest, each paid only from cash still available
+            serv_fee = min(p["beg_bal"] * self.servicing_fee / 12, p["total_cash"])
+            cash_after_fees = p["total_cash"] - serv_fee
+
+            a_int = min(a_beg * self.a_coupon / 12, cash_after_fees)
+            cash_after_a_int = cash_after_fees - a_int
+
+            b_int = min(b_beg * self.b_coupon / 12, cash_after_a_int)
+            cash_after_b_int = cash_after_a_int - b_int
+
+            # 4. Sequential principal
+            avail_prin = min(p["total_prin"], cash_after_b_int) if cap_principal_to_cash else p["total_prin"]
+            a_prin = min(avail_prin, a_beg)
+            b_prin = min(avail_prin - a_prin, b_beg)
+
+            # Reverse-seniority write-downs
+            loss = p["net_loss"]
+            eq_loss = min(loss, eq_beg)
+            b_loss = min(loss - eq_loss, b_beg - b_prin)
+            a_loss = min(loss - eq_loss - b_loss, a_beg - a_prin)
+
+            # 5. Residual to equity
+            residual = max(0.0, cash_after_b_int - a_prin - b_prin)
+
+            rows.append({
+                "period": t,
+                "a_beg": a_beg, "b_beg": b_beg, "eq_beg": eq_beg,
+                "serv_fee": serv_fee, "cash_after_fees": cash_after_fees,
+                "a_int": a_int, "cash_after_a_int": cash_after_a_int,
+                "b_int": b_int, "cash_after_b_int": cash_after_b_int,
+                "avail_prin": avail_prin, "a_prin": a_prin, "b_prin": b_prin,
+                "eq_loss": eq_loss, "b_loss": b_loss, "a_loss": a_loss,
+                "residual": residual,
+                "a_end": a_beg - a_prin - a_loss,
+                "b_end": b_beg - b_prin - b_loss,
+                "eq_end": eq_beg - eq_loss,
+            })
+
+        return pd.DataFrame(rows)
+
+
+    # --------------------------------------------------------------------------
+    # Tranche summary  (Tranche_Summary table)
+    # --------------------------------------------------------------------------
+
+    def tranche_summary(self, wf: Optional[pd.DataFrame] = None,
+                        cap_principal_to_cash: bool = True) -> pd.DataFrame:
+        """Original balance, principal repaid / written down, interest or residual paid,
+        ending balance and impairment % for each tranche."""
+
+        if wf is None:
+            wf = self.run_waterfall(cap_principal_to_cash)
+
+        rows = []
+        for name, (share_attr, prin_col, loss_col, cash_col, end_col) in TRANCHES.items():
+            original = self.balance * getattr(self, share_attr)
+            written_down = wf[loss_col].sum()
+            rows.append({
+                "tranche": name,
+                "original_balance": original,
+                "principal_repaid": wf[prin_col].sum() if prin_col else 0.0,
+                "principal_written_down": written_down,
+                "interest_residual_paid": wf[cash_col].sum(),
+                "ending_balance": wf[end_col].iloc[-1],
+                "impairment_pct": written_down / original,
+            })
+
+        return pd.DataFrame(rows).set_index("tranche")
+
+
+    def key_outputs(self, cap_principal_to_cash: bool = True) -> dict:
+        """Headline results (Sensitivity sheet "Current Test Outputs" block)."""
+
+        wf = self.run_waterfall(cap_principal_to_cash)
+        summary = self.tranche_summary(wf)
+        return {
+            "class_b_impairment": float(summary.loc["Class B", "impairment_pct"]),
+            "equity_impairment": float(summary.loc["Equity", "impairment_pct"]),
+            "class_b_ending_balance": float(summary.loc["Class B", "ending_balance"]),
+            "pool_ending_balance": float(self.pool["end_bal"].iloc[-1]),
+            "equity_wipeout_period": _first_period(wf, wf["eq_end"] <= 1e-6),
+            "class_a_payoff_period": _first_period(wf, wf["a_end"] <= 1e-6),
+        }
+
+
 # --------------------------------------------------------------------------
 # Sensitivity Matrix. What if?
 # --------------------------------------------------------------------------
 
-# place holder 
-def run_waterfall(self):
-    return None
+    def with_params(self, default_mult, sev):
 
-def class_b_impairment(self):
+        engine = WaterfallEngine(
+                balance=self.balance,
+                wam=self.wam,
+                wac=self.wac,
+                cpr=self.cpr,
+                cdr=self.cdr,
+                sev=sev,
+                servicing_fee=self.servicing_fee,
+                default_mult=default_mult,
+                a_share=self.a_share, 
+                a_coupon=self.a_coupon,
+                b_share=self.b_share,
+                b_coupon=self.b_coupon,
+                eq_share=self.eq_share,
+                )
 
-    df = self.run_waterfall()
+        return engine
 
-    total = df["b_wd"].sum()
+    def sensitivity(self, mults=None, sevs=None, cap_principal_to_cash=True):
 
-    return total / (self.balance * self.b_share)
+        if mults is None: 
+            mults = [1.0, 1.2, 1.4, 1.6, 1.8, 2.00, 2.2]
+        if sevs is None: 
+            sevs = [0.55, 0.60, 0.65, 0.70, 0.75]
 
-def with_params(self, default_mult, sev):
+        rows = []
 
-    engine = WaterfallEngine(
-            balance=self.balance,
-            wam=self.wam,
-            wac=self.wac,
-            cpr=self.cpr,
-            cdr=self.cdr,
-            sev=sev,
-            servicing_fee=self.servicing_fee,
-            default_mult=default_mult,
-            a_share=self.a_share, 
-            a_coupon=self.a_coupon,
-            b_share=self.b_share,
-            b_coupon=self.b_coupon,
-            eq_share=self.eq_share,
-            )
+        for m in mults: 
+            row = []
+            for s in sevs:
+                scenario = self.with_params(m, s)
+                outputs = scenario.key_outputs(cap_principal_to_cash=cap_principal_to_cash)
+                row.append(outputs["class_b_impairment"])
+            rows.append(row)
 
-    return engine
+        return pd.DataFrame(rows, index=mults, columns=sevs)
 
-def sensitivity(self, mults=None, sevs=None):
-    if mults is None: 
-        mults = [1.0, 1.2, 1.4, 1.6, 1.8, 2.00, 2.2]
-    if sevs is None: 
-        sevs = [0.55, 0.60, 0.65, 0.70, 0.75]
 
-    rows = []
+def _first_period(wf: pd.DataFrame, mask: pd.Series) -> Optional[int]:
+    hits = wf.loc[mask & (wf["period"] > 0), "period"]
+    return int(hits.iloc[0]) if not hits.empty else None
 
-    for m in mults: 
-        row = []
-        for s in sevs:
-            scenario = self.with_params(m, s)
-            row.append(scenario.class_b_impairment())
-        rows.append(row)
+if __name__ == "__main__":
+    engine = WaterfallEngine()
 
-    return pd.DataFrame(rows, index=mults, columns=sevs)
+    print("=== Tranche summary (base case) ===")
+    print(engine.tranche_summary(cap_principal_to_cash=False))
 
-    
+    print("\n=== Key outputs (base case) ===")
+    for key, value in engine.key_outputs(cap_principal_to_cash=False).items():
+        print(f"{key}: {value}")
+
+    print("\n=== Class B impairment sensitivity ===")
+    print(engine.sensitivity(cap_principal_to_cash=False).round(4))

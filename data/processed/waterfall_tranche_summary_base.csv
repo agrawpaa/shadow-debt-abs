@@ -1,0 +1,4 @@
+tranche,original_balance,principal_repaid,principal_written_down,interest_residual_paid,ending_balance,impairment_pct
+Class A,375000000.0,375000000.0,0.0,32304167.634236,0.0,0.0
+Class B,85000000.0,54140597.734349,5919017.163558,26052495.034812,24940385.102093,0.069635
+Equity,40000000.0,0.0,40000000.0,85650498.073885,0.0,1.0
