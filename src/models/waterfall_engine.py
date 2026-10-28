@@ -78,7 +78,7 @@ class WaterfallEngine:
         return 1 - (1 - self.cdr_stressed)**(1/12)
 
 # --------------------------------------------------------------------------
-# Waterfall  (Waterfall_Cashflows sheet, cols B-P)
+# Waterfall
 # --------------------------------------------------------------------------
 
     def build_pool_schedule(self):
@@ -139,3 +139,58 @@ class WaterfallEngine:
         self.pool = pd.DataFrame(pool_schedule)
         
         return self.pool
+
+# --------------------------------------------------------------------------
+# Sensitivity Matrix. What if?
+# --------------------------------------------------------------------------
+
+# place holder 
+def run_waterfall(self):
+    return None
+
+def class_b_impairment(self):
+
+    df = self.run_waterfall()
+
+    total = df["b_wd"].sum()
+
+    return total / (self.balance * self.b_share)
+
+def with_params(self, default_mult, sev):
+
+    engine = WaterfallEngine(
+            balance=self.balance,
+            wam=self.wam,
+            wac=self.wac,
+            cpr=self.cpr,
+            cdr=self.cdr,
+            sev=sev,
+            servicing_fee=self.servicing_fee,
+            default_mult=default_mult,
+            a_share=self.a_share, 
+            a_coupon=self.a_coupon,
+            b_share=self.b_share,
+            b_coupon=self.b_coupon,
+            eq_share=self.eq_share,
+            )
+
+    return engine
+
+def sensitivity(self, mults=None, sevs=None):
+    if mults is None: 
+        mults = [1.0, 1.2, 1.4, 1.6, 1.8, 2.00, 2.2]
+    if sevs is None: 
+        sevs = [0.55, 0.60, 0.65, 0.70, 0.75]
+
+    rows = []
+
+    for m in mults: 
+        row = []
+        for s in sevs:
+            scenario = self.with_params(m, s)
+            row.append(scenario.class_b_impairment())
+        rows.append(row)
+
+    return pd.DataFrame(rows, index=mults, columns=sevs)
+
+    
