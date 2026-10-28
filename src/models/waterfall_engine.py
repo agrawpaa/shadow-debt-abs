@@ -154,13 +154,13 @@ class WaterfallEngine:
 # Priority of payments  (Waterfall_Cashflows sheet, tranche columns)
 # --------------------------------------------------------------------------
 
-    def run_waterfall(self, cap_principal_to_cash: bool = True) -> pd.DataFrame:
+    def run_waterfall(self, cap_principal_to_cash: bool = False) -> pd.DataFrame:
         """
         Runs the monthly priority of payments on the engine's pool schedule.
 
         Parameters
         ----------
-        cap_principal_to_cash : bool, default True
+        cap_principal_to_cash : bool, default False
             Limit principal paid to cash remaining after fees and interest. False reproduces the Excel,
             which pays full principal collections even when cash runs short.
 
@@ -236,7 +236,7 @@ class WaterfallEngine:
     # --------------------------------------------------------------------------
 
     def tranche_summary(self, wf: Optional[pd.DataFrame] = None,
-                        cap_principal_to_cash: bool = True) -> pd.DataFrame:
+                        cap_principal_to_cash: bool = False) -> pd.DataFrame:
         """Original balance, principal repaid / written down, interest or residual paid,
         ending balance and impairment % for each tranche."""
 
@@ -299,7 +299,7 @@ class WaterfallEngine:
 
         return engine
 
-    def sensitivity(self, mults=None, sevs=None, cap_principal_to_cash=True):
+    def sensitivity(self, mults=None, sevs=None, cap_principal_to_cash=False):
 
         if mults is None: 
             mults = [1.0, 1.2, 1.4, 1.6, 1.8, 2.00, 2.2]
