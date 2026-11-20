@@ -1,5 +1,7 @@
+import numpy as np
 import pandas as pd
 from typing import Optional
+from scipy.optimize import brentq
 
 TRANCHES = {
     # name: (share attribute, principal column, loss column, interest/residual column, ending column)
@@ -42,6 +44,11 @@ class WaterfallEngine:
         The proportion for each type (must add up to 1)
     a_coupon, b_coupon : float
         The interest rate for A and B
+    recoveries_to_principal : bool, default False
+        False reproduces the Excel: recoveries on defaulted loans are collected as cash but are
+        not paid as note principal, so they fall through to the Equity residual and the notes end
+        up under-collateralized by cumulative recoveries. True adds recoveries to principal
+        available for Class A / Class B (standard ABS treatment).
     """
 
     def __init__(
@@ -58,7 +65,8 @@ class WaterfallEngine:
             a_coupon: float = 0.0575, 
             b_share: float = 0.17,
             b_coupon: float = 0.0825, 
-            eq_share: float = 0.08
+            eq_share: float = 0.08,
+            recoveries_to_principal: bool = False
             ):
         self.balance=balance
         self.wam=wam
@@ -73,6 +81,18 @@ class WaterfallEngine:
         self.b_share=b_share
         self.b_coupon=b_coupon
         self.eq_share=eq_share
+        self.recoveries_to_principal=recoveries_to_principal
+
+    def _validate(self):
+        """Reject inputs that would produce a meaningless deal."""
+        if abs(self.a_share + self.b_share + self.eq_share - 1.0) > 1e-9:
+            raise ValueError("a_share + b_share + eq_share must equal 1")
+        if not 0.0 <= self.sev <= 1.0:
+            raise ValueError("sev must be between 0 and 1")
+        if not 0.0 <= self.cdr_stressed < 1.0:
+            raise ValueError("stressed CDR (cdr * default_mult) must be in [0, 1)")
+        if not 0.0 <= self.cpr < 1.0:
+            raise ValueError("cpr must be in [0, 1)")
 
     @property
     def cdr_stressed(self) -> float:
@@ -93,6 +113,7 @@ class WaterfallEngine:
     def build_pool_schedule(self):
         """Returns a 49-row DataFrame for periods 0-48"""
 
+        self._validate()
         r = self.wac / 12
         smm = self.smm
         mdr = self.mdr  
@@ -200,8 +221,9 @@ class WaterfallEngine:
             b_int = min(b_beg * self.b_coupon / 12, cash_after_a_int)
             cash_after_b_int = cash_after_a_int - b_int
 
-            # 4. Sequential principal
-            avail_prin = min(p["total_prin"], cash_after_b_int) if cap_principal_to_cash else p["total_prin"]
+            # 4. Sequential principal (optionally including recoveries on defaulted loans)
+            prin_collected = p["total_prin"] + (p["recoveries"] if self.recoveries_to_principal else 0.0)
+            avail_prin = min(prin_collected, cash_after_b_int) if cap_principal_to_cash else prin_collected
             a_prin = min(avail_prin, a_beg)
             b_prin = min(avail_prin - a_prin, b_beg)
 
@@ -295,6 +317,7 @@ class WaterfallEngine:
                 b_share=self.b_share,
                 b_coupon=self.b_coupon,
                 eq_share=self.eq_share,
+                recoveries_to_principal=self.recoveries_to_principal,
                 )
 
         return engine
@@ -317,6 +340,60 @@ class WaterfallEngine:
             rows.append(row)
 
         return pd.DataFrame(rows, index=mults, columns=sevs)
+
+
+# --------------------------------------------------------------------------
+# Returns: IRR, WAL, total loss per tranche
+# --------------------------------------------------------------------------
+
+def _tranche_returns(engine: "WaterfallEngine", wf: Optional[pd.DataFrame] = None,
+                     cap_principal_to_cash: bool = True) -> pd.DataFrame:
+    """
+    Realized IRR, WAL and loss for each tranche, assuming each is bought at par at period 0.
+
+    IRR: monthly rate i solving  -Face + sum_t CF_t / (1+i)^t = 0, annualized as (1+i)^12 - 1.
+    WAL: sum_t (t * principal_t) / sum_t principal_t, in years (only principal actually received).
+    Total loss counts both write-downs and any balance still unpaid after month 48.
+    """
+    if wf is None:
+        wf = engine.run_waterfall(cap_principal_to_cash)
+
+    rows = []
+    for name, (share_attr, prin_col, loss_col, cash_col, end_col) in TRANCHES.items():
+        face = engine.balance * getattr(engine, share_attr)               # original balance
+        prin = wf[prin_col].to_numpy() if prin_col else np.zeros(len(wf))  # principal received
+        cash = wf[cash_col].to_numpy() + prin                              # interest/residual + principal
+        flows = cash.copy()
+        flows[0] = -face                                                   # buy at par at t = 0
+        periods = wf["period"].to_numpy()
+        written_down = wf[loss_col].sum()                                  # reverse-seniority write-downs
+        unpaid = wf[end_col].iloc[-1]                                      # balance left after month 48
+        rows.append({
+            "tranche": name,
+            "original_balance": face,
+            "irr_annual": _irr_annual(flows),
+            "wal_years": (periods * prin).sum() / prin.sum() / 12 if prin.sum() > 0 else np.nan,
+            "principal_written_down": written_down,
+            "unpaid_at_maturity": unpaid,
+            "total_principal_loss_pct": (written_down + unpaid) / face,
+            "money_good": (written_down + unpaid) < 1.0,
+            # month a write-down (not a repayment) drives the balance to zero
+            "wipeout_period": _first_period(wf, (wf[end_col] <= 1e-6) & (wf[loss_col] > 1.0)),
+        })
+    return pd.DataFrame(rows).set_index("tranche")
+
+
+def _irr_annual(flows) -> float:
+    """Annualized IRR of monthly cash flows (BA II Plus CF worksheet, then (1+i)^12 - 1)."""
+    flows = np.asarray(flows, dtype=float)
+    t = np.arange(len(flows))
+    if flows[1:].sum() <= 0:
+        return -1.0
+    npv = lambda i: (flows / (1 + i) ** t).sum()
+    return (1 + brentq(npv, -0.99, 1.0)) ** 12 - 1
+
+
+WaterfallEngine.tranche_returns = _tranche_returns
 
 
 def _first_period(wf: pd.DataFrame, mask: pd.Series) -> Optional[int]:
