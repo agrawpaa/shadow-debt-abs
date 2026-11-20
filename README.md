@@ -11,6 +11,7 @@ Python port of `Waterfall Model - Week 1 Deliverable 1`. Every figure ties out t
 | `src/models/waterfall_engine.py` | `WaterfallEngine`: inputs, SMM/MDR, 48-month pool amortization (`build_pool_schedule`) |
 | `src/models/waterfall_cashflows.py` | `run_waterfall` (priority of payments + loss allocation), `tranche_summary`, `key_outputs`, `sensitivity_grid` |
 | `tests/test_waterfall_cashflows.py` | Tie-out tests against the Excel base case and the 7 × 5 sensitivity grid |
+| `notebooks/03_waterfall_baseline.ipynb` | Track 3: reads Track 2's calibrated M, runs 4 regimes, IRR / WAL table, 3 stress charts |
 
 ```bash
 pip install -r requirements.txt
@@ -28,3 +29,8 @@ sensitivity_grid()                                              # Class B impair
 
 `cap_principal_to_cash=False` reproduces the Excel exactly. The default (`True`) stops the model paying more principal
 than the cash collected, which the Excel does in months 46–48. Impairment % is the same either way.
+
+`recoveries_to_principal=False` (default) matches the Excel, where recoveries on defaulted loans fall through to the
+Equity residual and the notes end up under-collateralized by cumulative recoveries (~$24.9M of Class B unpaid at month 48
+in the base case). `True` passes recoveries through as principal (standard ABS treatment). Track 3 results use `True`.
+`engine.tranche_returns()` gives IRR, WAL and total principal loss per tranche.
